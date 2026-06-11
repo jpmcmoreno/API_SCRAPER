@@ -19,6 +19,16 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 app = Flask(__name__)
+app.url_map.strict_slashes = False   # /noticias y /noticias/ funcionan igual
+
+
+@app.before_request
+def _ruta_minusculas():
+    # tolera /Noticias, /SALUD, etc.
+    from flask import request as _rq
+    if _rq.path != _rq.path.lower() and _rq.path.lower() in ("/noticias", "/salud", "/cargar", "/"):
+        from werkzeug.routing import RequestRedirect
+        raise RequestRedirect(_rq.path.lower() + (("?" + _rq.query_string.decode()) if _rq.query_string else ""))
 
 RUTA_BD = os.environ.get("RUTA_BD", os.path.join(os.path.dirname(__file__), "monitoreo.db"))
 API_KEY = os.environ.get("API_KEY", "")   # definir en Render
@@ -103,7 +113,7 @@ def noticias():
     desde = request.args.get("desde") or str(hoy - timedelta(days=2))
     hasta = request.args.get("hasta") or str(hoy)
     tipo = (request.args.get("tipo") or "excel").lower()
-    formato = (request.args.get("formato") or "plano").lower()
+    formato = (request.args.get("formato") or "consolidado").lower()
 
     sql, params = filtrar(request.args.get("analista", ""), desde, hasta)
     con = conectar()
@@ -115,7 +125,7 @@ def noticias():
         return jsonify({"total": len(filas), "desde": desde, "hasta": hasta,
                         "noticias": [dict(zip(claves, f)) for f in filas]})
 
-    buf = excel_consolidado(filas) if formato == "consolidado" else excel_plano(filas)
+    buf = excel_plano(filas) if formato == "plano" else excel_consolidado(filas)
     nombre = f"Noticias_{desde}_a_{hasta}.xlsx"
     return send_file(buf, as_attachment=True, download_name=nombre,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -184,11 +194,19 @@ padding:10px 22px;cursor:pointer}}.nota{{color:#667;font-size:12px;margin-top:12
 <label>Desde (vacío = hace 2 días)</label><input type="date" name="desde">
 <label>Hasta (vacío = hoy)</label><input type="date" name="hasta">
 <label>Tipo</label><select name="tipo"><option value="excel">Excel</option><option value="json">JSON</option></select>
-<label>Formato del Excel</label><select name="formato"><option value="plano">Plano</option>
-<option value="consolidado">Consolidado para la API (hoja por fuente)</option></select>
+<label>Formato del Excel</label><select name="formato">
+<option value="consolidado">Consolidado para la API (hoja por fuente)</option>
+<option value="plano">Plano (una sola hoja)</option></select>
 <button type="submit">Descargar</button></form>
 <p class="nota">{total:,} noticias en la base.</p></div></body></html>""",
         mimetype="text/html")
+
+
+@app.errorhandler(404)
+def _no_encontrado(e):
+    return jsonify({"error": "ruta no encontrada",
+                    "rutas_validas": ["/", "/noticias", "/salud", "/cargar (POST)"],
+                    "ejemplo": "/noticias?analista=JUAN&desde=2026-06-01&hasta=2026-06-10"}), 404
 
 
 if __name__ == "__main__":
