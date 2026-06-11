@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: monitoreo-noticias
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: API_KEY
+        sync: false   # se define a mano en el panel de Render
